@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { calculate, getMeta } from './api.js'
 import InputForm from './components/InputForm.jsx'
 import ImageInput from './components/ImageInput.jsx'
@@ -13,6 +13,7 @@ const INITIAL_FORM = {
 }
 
 const isFilled = (v) => v !== '' && Number.isFinite(v)
+const clampTreePosition = (position, span) => Math.min(Math.max(Number(position) || 0, 0), span)
 
 function buildPayload(form, measured) {
   const { tree, ...rest } = form
@@ -34,6 +35,8 @@ export default function App() {
   const [measured, setMeasured] = useState(null)
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
+  const treePositionEdited = useRef(false)
+  const lastMeasuredSpan = useRef(null)
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -55,12 +58,40 @@ export default function App() {
     return () => { clearTimeout(timer); ctrl.abort() }
   }, [payload])
 
-  const update = useCallback((patch) => setForm((f) => ({ ...f, ...patch })), [])
+  const update = useCallback((patch, options) => {
+    if (options?.treePosition) treePositionEdited.current = true
+    setForm((f) => {
+      const spanChanged = Number.isFinite(patch.span) && patch.span >= 0 && patch.span !== f.span
+      if (!spanChanged) return { ...f, ...patch }
+      const x = treePositionEdited.current ? clampTreePosition(f.tree.x, patch.span) : patch.span / 2
+      treePositionEdited.current = false
+      return { ...f, ...patch, tree: { ...f.tree, x } }
+    })
+  }, [])
+
+  const handleMeasured = useCallback((next) => {
+    setMeasured(next)
+    const span = next?.span ?? null
+    if (span === lastMeasuredSpan.current) return
+    lastMeasuredSpan.current = span
+    if (Number.isFinite(span) && span >= 0) {
+      setForm((f) => {
+        const x = treePositionEdited.current ? clampTreePosition(f.tree.x, span) : span / 2
+        treePositionEdited.current = false
+        return { ...f, tree: { ...f.tree, x } }
+      })
+    }
+  }, [])
 
   const applyVoltage = useCallback((kv) => setForm((f) => {
     const preset = meta?.presets[kv] ?? {}
     const span = preset.span ?? f.span
-    return { ...f, ...preset, voltage_kv: kv, insulated: false, tree: { ...f.tree, x: span / 2 } }
+    const spanChanged = span !== f.span
+    const x = spanChanged
+      ? treePositionEdited.current ? clampTreePosition(f.tree.x, span) : span / 2
+      : f.tree.x
+    if (spanChanged) treePositionEdited.current = false
+    return { ...f, ...preset, voltage_kv: kv, insulated: false, tree: { ...f.tree, x } }
   }), [meta])
 
   const exportReport = () => {
@@ -92,17 +123,18 @@ export default function App() {
                 onClick={() => setMode(key)}>{label}</button>
             ))}
           </div>
-          {mode === 'image' && <ImageInput onMeasured={setMeasured} />}
+          {mode === 'image' && <ImageInput onMeasured={handleMeasured} />}
           {meta
             ? <InputForm form={form} meta={meta} onChange={update} onVoltage={applyVoltage}
-                geometryFromImage={mode === 'image' && Boolean(measured)} />
+                geometryFromImage={mode === 'image' && Boolean(measured)} imageGeometry={mode === 'image' ? measured : null} />
             : <p className="muted">Loading reference data…</p>}
         </aside>
 
         <section className="results">
           {error && <div className="alert">{error}</div>}
           {!payload && <div className="alert soft">Fill in every field to run the check.</div>}
-          {result ? <Results result={result} voltage={form.voltage_kv} tree={payload?.tree} span={payload?.span ?? form.span} sources={meta?.sources} />
+          {result ? <Results result={result} voltage={form.voltage_kv} tree={payload?.tree} span={payload?.span ?? form.span}
+            sources={meta?.sources} showArmB={mode !== 'image'} />
             : <p className="muted">Calculating…</p>}
         </section>
       </main>

@@ -3,8 +3,8 @@ import { vectorize } from '../api.js'
 import { NumberField } from './InputForm.jsx'
 
 const SAMPLES = [
-  { file: 'sag_diagram_132kv.jpeg', label: 'Sag diagram (250 m span)', span: 250, height: 20 },
-  { file: 'sag_clearance_infographic.jpeg', label: 'Clearance infographic', span: 250, height: 20 },
+  { file: 'sag_diagram_132kv.jpeg', label: 'Sag diagram (250 m span)' },
+  { file: 'sag_clearance_infographic.jpeg', label: 'Clearance infographic' },
 ]
 const PHASES_TOP_DOWN = { 1: ['A-Y'], 2: ['A-R', 'A-Y'], 3: ['A-B', 'A-R', 'A-Y'] }
 
@@ -36,15 +36,15 @@ function ImageInput({ onMeasured }) {
   const [img, setImg] = useState(null)          // { url, name }
   const [vec, setVec] = useState(null)
   const [handles, setHandles] = useState(null)  // { L, R, low, ground }
-  const [cal, setCal] = useState({ span: 250, height: '' })
+  const [cal, setCal] = useState({ span: '', height: '' })
   const [drag, setDrag] = useState(null)
   const [status, setStatus] = useState('')
 
-  const load = async (file, name, preset) => {
+  const load = async (file, name) => {
     const url = URL.createObjectURL(file)
     setImg({ url, name })
+    setCal({ span: '', height: '' })
     setVec(null); setHandles(null); setStatus('Vectorising…')
-    if (preset) setCal({ span: preset.span, height: preset.height })
     try {
       const v = await vectorize(file)
       setVec(v)
@@ -61,7 +61,7 @@ function ImageInput({ onMeasured }) {
 
   const loadSample = async (s) => {
     const blob = await (await fetch(`/samples/${s.file}`)).blob()
-    load(new File([blob], s.file, { type: blob.type }), s.label, s)
+    load(new File([blob], s.file, { type: blob.type }), s.label)
   }
 
   const measurement = useMemo(() => measure(vec, handles, cal), [vec, handles, cal])
@@ -135,6 +135,7 @@ function ImageInput({ onMeasured }) {
             <NumberField label="Known attach height" unit="m" value={cal.height} onChange={(height) => setCal((c) => ({ ...c, height }))}
               hint="optional · use when the image is not to scale" />
           </div>
+          {cal.height === '' && <p className="note small calibration-note">Enter attachment height if the drawing isn't to scale.</p>}
           {measurement && (
             <table className="mini">
               <tbody>

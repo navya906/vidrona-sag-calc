@@ -27,10 +27,10 @@ function LineChart({ series, markers = [], xLabel, yLabel, yMin }) {
         {ticks(y0, y1).map((t) => (
           <g key={t}>
             <line className="grid" x1={PAD.l} x2={W - PAD.r} y1={sy(t)} y2={sy(t)} />
-            <text className="tick" x={PAD.l - 6} y={sy(t) + 4} textAnchor="end">{t}</text>
+            <text className="tick" x={PAD.l - 6} y={sy(t) + 4} textAnchor="end">{Number(t).toFixed(2)}</text>
           </g>
         ))}
-        {ticks(x0, x1, 6).map((t) => <text key={t} className="tick" x={sx(t)} y={H - PAD.b + 16} textAnchor="middle">{t}</text>)}
+        {ticks(x0, x1, 6).map((t) => <text key={t} className="tick" x={sx(t)} y={H - PAD.b + 16} textAnchor="middle">{Number(t).toFixed(2)}</text>)}
         <text className="axis" x={(W + PAD.l) / 2} y={H - 4} textAnchor="middle">{xLabel}</text>
         <text className="axis" transform={`translate(12 ${(H - PAD.b) / 2}) rotate(-90)`} textAnchor="middle">{yLabel}</text>
         {markers.map((m) => (
