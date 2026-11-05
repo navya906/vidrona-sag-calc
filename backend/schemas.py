@@ -32,6 +32,7 @@ class Measured(BaseModel):
     """Values extracted from an image (already converted to metres)."""
     sag: float = Field(gt=0)
     phase_sags: dict[PhaseKey, float] = {}
+    photo_temp: float = Field(35, ge=-20, le=120)     # conductor temperature when the photo was taken (°C)
 
 
 class CalcRequest(BaseModel):
@@ -175,6 +176,21 @@ class Curve(BaseModel):
     points: list[tuple[float, float]]
 
 
+class Camera(BaseModel):
+    available: bool
+    camera: Optional[str] = None
+    taken_at: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    altitude_m: Optional[float] = None
+    relative_altitude_m: Optional[float] = None
+    gimbal_pitch_deg: Optional[float] = None
+    gimbal_yaw_deg: Optional[float] = None
+    flight_yaw_deg: Optional[float] = None
+    focal_length_mm: Optional[float] = None
+    focal_length_35mm: Optional[float] = None
+
+
 class VectorizeResult(BaseModel):
     width: int
     height: int
@@ -182,3 +198,25 @@ class VectorizeResult(BaseModel):
     ground_y: float
     ground_method: str
     confidence: float
+    camera: Camera
+
+
+class DroneConductor(BaseModel):
+    id: int
+    points: list[tuple[float, float]]
+    length_px: float
+    width_px: float
+    contact_pct: float
+    contact_segments: list[tuple[float, float, float, float]]
+    corridor_vegetation_pct: float
+    status: Literal["Contact", "Possible encroachment", "Clear"]
+
+
+class PhotoResult(BaseModel):
+    width: int
+    height: int
+    conductors: list[DroneConductor]
+    poles: list[tuple[int, int, int, int]]
+    attachment_points: list[tuple[float, float]]
+    vegetation_pct: float
+    camera: Camera

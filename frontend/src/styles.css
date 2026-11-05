@@ -180,3 +180,30 @@ table.compare tr.current td { font-weight: 650; color: var(--accent); }
   .layout { grid-template-columns: 1fr; }
   .card, .kpi { break-inside: avoid; }
 }
+
+/* ---- v1.1: drone photo, perspective correction, camera block ---- */
+.tabs { grid-template-columns: repeat(3, 1fr); }
+.pole-box rect { fill: none; stroke: #00c2ff; }
+.pole-box text { fill: #00c2ff; font-weight: 600; }
+.drone-wire polyline { stroke: var(--good); }
+.drone-wire.warn polyline, .drone-wire.warn text { stroke: var(--warn); fill: var(--warn); }
+.drone-wire.bad polyline, .drone-wire.bad text { stroke: var(--bad); fill: var(--bad); }
+.drone-wire.good text { fill: var(--good); }
+.drone-wire .contact { stroke: #e63946; }
+.attach { fill: none; stroke: #fff; }
+.mini-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0; }
+.mini-kpis div { background: var(--bg); border-radius: 8px; padding: 8px; text-align: center; display: flex; flex-direction: column; }
+.mini-kpis b { font-size: 18px; } .mini-kpis span { font-size: 11px; color: var(--muted); }
+.swatch.good { background: var(--good); } .swatch.warn { background: var(--warn); } .swatch.bad { background: var(--bad); }
+tr.good td:nth-child(2) { color: var(--good); } tr.warn td:nth-child(2) { color: var(--warn); } tr.bad td:nth-child(2) { color: var(--bad); }
+.tower-quad { fill: rgba(0, 194, 255, .12); stroke: #00c2ff; stroke-dasharray: 6 4; }
+.handle.tower { fill: #00c2ff; stroke: #fff; cursor: grab; }
+.handle-label { fill: #fff; paint-order: stroke; stroke: rgba(0,0,0,.6); stroke-width: 3px; font-weight: 600; }
+table.camera { margin-top: 8px; }
+.field > button { align-self: flex-start; }
+.layout.drone { grid-template-columns: 300px 1fr; }
+.layout.drone .inputs { padding-bottom: 0; }
+.results .drone { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+.results .drone .canvas { max-width: 1100px; }
+.results .drone .mini-kpis { max-width: 620px; }
+.results .drone table.mini, .results .drone .grid2 { max-width: 620px; }

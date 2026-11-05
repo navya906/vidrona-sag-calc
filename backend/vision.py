@@ -1,7 +1,7 @@
 """
 Image -> vector extraction for an overhead-line span.
 
-1. Black-hat morphology isolates thin dark strokes; short components (text, dashes) are dropped.
+1. Black-hat (dark strokes) + bright-ridge (silver wire on foliage/sky) masks; short components are dropped.
 2. Skeletonise -> candidate pixels.
 3. RANSAC fits parabolas y = ax² + bx + c (a < 0 in image coords = sagging) and scores them by
    the longest continuous run of covered columns, so long wires beat towers and labels.
@@ -15,6 +15,7 @@ import warnings
 
 import cv2
 import numpy as np
+from skimage.filters import sato
 from skimage.morphology import skeletonize
 
 MAX_SIDE = 1400
@@ -22,6 +23,7 @@ warnings.simplefilter("ignore", np.exceptions.RankWarning)
 
 
 def _stroke_mask(img: np.ndarray) -> tuple[float, np.ndarray]:
+    """Thin-line mask = dark strokes (drawings) OR bright non-green ridges (real photos of ACSR wire)."""
     h, w = img.shape[:2]
     scale = min(1.0, MAX_SIDE / max(h, w))
     if scale < 1:
@@ -29,12 +31,35 @@ def _stroke_mask(img: np.ndarray) -> tuple[float, np.ndarray]:
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     k = max(7, round(max(img.shape[:2]) / 120) | 1)
     bh = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
-    _, mask = cv2.threshold(bh, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    _, dark = cv2.threshold(bh, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    mask = dark if _is_drawing(img) else dark | _bright_ridges(img, gray)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
     n, lab, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
     keep = stats[:, cv2.CC_STAT_WIDTH] >= 0.12 * mask.shape[1]
     keep[0] = False
     return scale, keep[lab]
+
+
+def _is_drawing(img: np.ndarray) -> bool:
+    """Drawings / infographics have large flat areas; photos have texture almost everywhere."""
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    lap = cv2.Laplacian(gray, cv2.CV_32F, ksize=3)
+    return float(np.median(cv2.blur(np.abs(lap), (9, 9)))) < 20
+
+
+def _bright_ridges(img: np.ndarray, gray: np.ndarray) -> np.ndarray:
+    """Bright, thin, non-vegetation ridges (same recipe as vision_drone._candidates)."""
+    b, g, r = (c.astype(np.float32) for c in cv2.split(img))
+    exg = (2 * g - r - b) / (b + g + r + 1e-6)
+    sat = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)[..., 1]
+    ridge = sato(gray / 255.0, sigmas=[1.5, 2.5, 3.5], black_ridges=False)
+    top = np.percentile(ridge, 99.7)
+    if top <= 1e-6:
+        return np.zeros_like(gray)
+    ridge = ridge / top
+    # only meaningful when the ridge response is strong and the pixel is clearly brighter than its surroundings
+    local = cv2.GaussianBlur(gray, (0, 0), 6)
+    return (((ridge > 0.35) & (exg < 0.10) & (sat < 110) & (gray.astype(np.int16) - local > 15)) * 255).astype(np.uint8)
 
 
 def _longest_run(xs: np.ndarray, max_gap: float) -> tuple[int, int, int] | None:

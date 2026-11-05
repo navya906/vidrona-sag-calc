@@ -18,3 +18,9 @@ export const vectorize = (file, signal) => {
   body.append('file', file)
   return request('/vectorize', { method: 'POST', body, signal })
 }
+
+export const analyzePhoto = (file, signal) => {
+  const body = new FormData()
+  body.append('file', file)
+  return request('/analyze-photo', { method: 'POST', body, signal })
+}

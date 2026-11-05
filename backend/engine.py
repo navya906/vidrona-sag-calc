@@ -126,16 +126,18 @@ def calculate(r: CalcRequest) -> dict:
     notes: list[str] = []
 
     # Reference condition: measured sag (image) or tension from FoS / direct input
+    ref_temp = r.measured.photo_temp if r.measured else r.ref_temp
     if r.measured:
         S_ref = r.measured.sag
         T_ref = w * L * L / (8 * S_ref)
-        notes.append(f"Sag measured from image → implied tension {T_ref / 1000:.1f} kN ({100 * T_ref / uts:.1f}% of UTS).")
+        notes.append(f"Sag {S_ref:.2f} m measured from image at {ref_temp:g} °C → implied tension "
+                     f"{T_ref / 1000:.1f} kN ({100 * T_ref / uts:.1f}% of UTS).")
     else:
         T_ref = r.tension_kN * 1000 if r.tension_kN else uts / r.factor_of_safety
         S_ref = sag_parabolic(w, L, T_ref)
 
     def sag_at(t: float) -> tuple[float, float]:
-        T = state_change_tension(T_ref, t - r.ref_temp, w, L, EA, cond.alpha)
+        T = state_change_tension(T_ref, t - ref_temp, w, L, EA, cond.alpha)
         return T, sag_parabolic(w, L, T)
 
     sweep = [{"temp": t, "tension_kN": round(T / 1000, 2), "sag": round(S, 3)}

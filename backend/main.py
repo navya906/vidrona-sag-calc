@@ -14,12 +14,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 import engine
+import metadata
 import vision
-from schemas import CalcRequest, CalcResult, Meta, VectorizeResult
+import vision_drone
+from schemas import CalcRequest, CalcResult, Meta, PhotoResult, VectorizeResult
 
 MAX_UPLOAD = 15 * 1024 * 1024
 
-app = FastAPI(title="Sag & Clearance Analyser", version="1.0.0")
+app = FastAPI(title="Sag & Clearance Analyser", version="1.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_methods=["GET", "POST"],
                    allow_headers=["*"])
 
@@ -38,14 +40,30 @@ def calculate(req: CalcRequest) -> dict:
     return engine.calculate(req)
 
 
-@app.post("/api/vectorize", response_model=VectorizeResult)
-def vectorize(file: UploadFile = File(...), max_curves: int = Query(3, ge=1, le=6)) -> dict:
-    # sync def -> FastAPI runs this CPU-bound work in its threadpool, keeping the event loop free
+def _read_upload(file: UploadFile) -> bytes:
     data = file.file.read(MAX_UPLOAD + 1)
     if len(data) > MAX_UPLOAD:
         raise HTTPException(413, "Image too large (max 15 MB)")
+    return data
+
+
+# Both image routes are sync defs: FastAPI runs the CPU-bound OpenCV work in its threadpool.
+@app.post("/api/vectorize", response_model=VectorizeResult)
+def vectorize(file: UploadFile = File(...), max_curves: int = Query(3, ge=1, le=6)) -> dict:
+    """Side-view image or drawing -> conductor curves, ground line, camera metadata."""
+    data = _read_upload(file)
     try:
-        return vision.vectorize(data, max_curves)
+        return {**vision.vectorize(data, max_curves), "camera": metadata.read(data)}
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+@app.post("/api/analyze-photo", response_model=PhotoResult)
+def analyze_photo(file: UploadFile = File(...)) -> dict:
+    """Oblique drone photo -> conductors, poles, attachment points, vegetation, leaf contact."""
+    data = _read_upload(file)
+    try:
+        return {**vision_drone.analyze(data), "camera": metadata.read(data)}
     except ValueError as e:
         raise HTTPException(422, str(e)) from e
 

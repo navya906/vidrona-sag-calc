@@ -26,7 +26,7 @@ function Kpi({ label, value, unit, requirement, status }) {
   )
 }
 
-function Results({ result, voltage, tree: treeIn, span, sources, showArmB = true }) {
+function Results({ result, voltage, tree: treeIn, span, sources, showArmB = true, spanLabel = '', photoTemp = null }) {
   const { mechanics: m, ground: g, tree: t, ratios } = result
   const displayedRatios = ratios.filter((r) => showArmB || r.arm === 'A')
   const worst = displayedRatios.reduce((a, b) => (b.deviation_pct > a.deviation_pct ? b : a))
@@ -48,10 +48,13 @@ function Results({ result, voltage, tree: treeIn, span, sources, showArmB = true
     <div className="results-inner">
       <div className={`summary-banner ${statusTone(overallStatus)}`} role="status">
         <strong>{overallStatus === 'Pass' ? 'Safe' : overallStatus === 'Fail' ? 'Action needed' : 'Review needed'}</strong>
-        <span>{summaryText}.</span>
+        <span>{spanLabel && <b>{spanLabel} · </b>}{summaryText}.</span>
       </div>
 
       <div className="kpis">
+        <Kpi label={photoTemp != null ? `Sag · measured at ${photoTemp} °C → at 75 °C` : 'Sag at max temperature'}
+          value={fmt(photoTemp != null ? m.sag_max_temp : m.sag_assessed)} unit="m"
+          requirement={photoTemp != null ? `${fmt(m.sag_ref)} m in photo` : `T ${fmt(m.tension_ref_kN, 1)} kN`} status="Pass" />
         <Kpi label="Ground clearance" value={fmt(g.actual)} unit="m" requirement={`${fmt(g.required.value)} m`} status={groundStatus} />
         {t && <Kpi label="Tree clearance" value={fmt(t.distance)} unit="m" requirement={`${fmt(t.required.value)} m`} status={treeStatus} />}
         <Kpi label={<>Phase ratio <Info text="The mid-span phase spacing divided by the spacing at the tower; 1.00 means spacing is unchanged." /></>}

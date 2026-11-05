@@ -24,21 +24,30 @@ npm run dev          # http://localhost:5173 (proxies /api to :8000)
 npm run build        # refresh frontend/dist
 ```
 
-## Two input modes
+## Three input modes
 
 | Mode | What you give | What happens |
 |---|---|---|
-| **Text input** | Voltage (11 / 33 / 220 kV), line location (open ground / along / across a street), conductor, span, attachment height, phase spacing, factor of safety, temperatures, wind, tree details | Sag is calculated from tension (T = UTS ÷ FoS) with `S = wL²/8T` |
-| **Image input** | A photo or drawing of a span + one known length (span) and optionally the attachment height | The image is vectorised: the wire is found and fitted, sag is measured in pixels and converted to metres. The implied tension is back-calculated |
+| **Text** | Voltage (11 / 33 / 220 kV), line location, conductor, span, attachment height, phase spacing, tree details; advanced: factor of safety, temperatures, wind, phase-fault simulation | Sag from tension (T = UTS ÷ FoS) with `S = wL²/8T`, carried to the maximum temperature |
+| **Side-view image** | A side-on photo or drawing of a span + known span (m) and attachment height (m); optionally 4 tower points for perspective correction and the conductor temperature at photo time | The wire is found and fitted (dark strokes on drawings, bright ridges on photos), sag is measured in pixels, converted to metres, corrected for viewing angle, and the implied tension is back-calculated. The sag-vs-temperature curve then starts from the photo temperature |
+| **Drone photo** | An oblique drone frame of a pole or span | Conductors, poles, attachment points and vegetation are detected; each conductor is marked Contact / Possible encroachment / Clear. No sag calculation: a single photo has no depth |
 
-### How the image is vectorised (`backend/vision.py`)
-1. **Black-hat morphology** isolates thin dark strokes (wires, towers, text).
-2. **Short strokes are dropped** (text, dashes), and the rest is **skeletonised**.
-3. **RANSAC parabola fitting** finds the sagging wires. Candidates are scored by the longest continuous run of pixels, so long wires beat text and lattice. Up to 3 conductors (phases) are found.
+Camera metadata (GPS, altitude, gimbal pitch, focal length, DJI XMP fields) is read from original files and shown under the image. WhatsApp and most chat apps strip it, so send the original drone files. Optional "From / To pole ID" fields label the span (e.g. 0008 → 0009) in the summary and the JSON export.
+
+### How the side-view image is vectorised (`backend/vision.py`)
+1. Two thin-line masks: **black-hat morphology** for dark strokes (drawings) and a **ridge filter with excess-green rejection** for bright silver wire on foliage or sky (photos). Drawings are told apart from photos by texture.
+2. **Short strokes are dropped** (text, dashes) and the rest is **skeletonised**.
+3. **RANSAC parabola fitting** finds the sagging wires, scored by the longest continuous run of pixels. Up to 3 conductors.
 4. Wire ends are **trimmed where they enter the tower lattice**. **Ground** is the average tower base.
-5. The UI overlays the result. **Every point can be dragged** to correct it, and the numbers update live.
+5. The UI overlays the result. **Every point can be dragged** to correct it.
 
-**Calibration:** the known span sets the horizontal scale. If the attachment height is also given, the vertical scale is set separately. This matters for schematic drawings: the bundled 132 kV diagram labels 5 m of sag but draws it about 2× too tall, and the app detects and flags this mismatch.
+**Calibration:** known span sets the horizontal scale; known attachment height sets the vertical scale. **Perspective correction:** mark T1 top, T1 base, T2 top, T2 base; a homography maps the tower plane to metres and the sag is re-measured in that frame. The viewing angle is estimated from how much the far tower is foreshortened.
+
+### How the drone photo is analysed (`backend/vision_drone.py`)
+1. **Ridge filter** finds thin bright lines; **excess-green** and low saturation reject foliage.
+2. **Hough segments** are clustered into collinear groups and each group is fitted with a slightly curved line; a **brightness contrast test** keeps silver conductors and rejects dark steel crossarms.
+3. **Poles** are tall, narrow, non-vegetation regions near a conductor end (attachment point).
+4. **Leaf contact** = foliage drawn over the wire path (hard evidence). Dense foliage around the wire is only *possible* encroachment, because one photo cannot tell beside from behind.
 
 ## What is calculated
 
@@ -61,7 +70,8 @@ Use **Simulate phase sag fault** to add extra sag to any phase and watch the rat
 |---|---|---|
 | GET | `/api/meta` | Conductors, voltage presets, sources |
 | POST | `/api/calculate` | All calculations (`CalcRequest` → `CalcResult`) |
-| POST | `/api/vectorize` | Image → detected curves, handles and ground (`VectorizeResult`) |
+| POST | `/api/vectorize` | Side-view image → detected curves, ground, camera metadata (`VectorizeResult`) |
+| POST | `/api/analyze-photo` | Drone photo → conductors, poles, attachment points, vegetation, contact flags (`PhotoResult`) |
 
 Interactive docs: http://localhost:8000/docs. All request and response shapes are in `backend/schemas.py`.
 
@@ -77,3 +87,7 @@ Interactive docs: http://localhost:8000/docs. All request and response shapes ar
 - CEA (Measures relating to Safety and Electric Supply) Regulations: ground clearance rule.
 - MoEF guidelines for transmission lines through forest land (published by CEA): tree clearance and right-of-way.
 - TGTRANSCO technical specification for ACSR Panther / Zebra / Moose: conductor data.
+
+## Roadmap
+
+Next: a trained wire/pole segmentation model (e.g. U-Net on the TTPLA dataset) for busy backgrounds, and stereo or photogrammetry across overlapping drone frames so vegetation clearance becomes a true 3-D distance instead of a flag.
