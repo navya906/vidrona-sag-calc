@@ -21,11 +21,13 @@ function buildPayload(form, measured) {
   const { enabled, ...treeFields } = tree
   const payload = { ...rest, tree: enabled ? treeFields : null }
   if (measured) {
-    const { sag, phase_sags, ...geometry } = measured
-    Object.assign(payload, geometry, { measured: { sag, phase_sags } })
+    // photo_temp belongs inside `measured` - at the top level the backend ignores it and falls back to 35 °C
+    const { sag, phase_sags, photo_temp, ...geometry } = measured
+    Object.assign(payload, geometry, { measured: { sag, phase_sags, photo_temp } })
   }
   const numbers = [payload.span, payload.attach_height, payload.voltage_kv, payload.phase_gap, payload.max_temp,
-    payload.factor_of_safety, ...(payload.tree ? Object.values(payload.tree) : [])]
+    payload.ref_temp, payload.wind_pressure, payload.phase_offset, payload.factor_of_safety,
+    ...(payload.measured ? [payload.measured.photo_temp] : []), ...(payload.tree ? Object.values(payload.tree) : [])]
   return numbers.every(isFilled) ? payload : null
 }
 
@@ -36,6 +38,7 @@ export default function App() {
   const [measured, setMeasured] = useState(null)
   const [assets, setAssets] = useState({ from: '', to: '' })
   const [result, setResult] = useState(null)
+  const [droneResult, setDroneResult] = useState(null)
   const [error, setError] = useState('')
   const treePositionEdited = useRef(false)
   const lastMeasuredSpan = useRef(null)
@@ -97,11 +100,15 @@ export default function App() {
     return { ...f, ...preset, voltage_kv: kv, insulated: false, tree: { ...f.tree, x } }
   }), [meta])
 
+  const canExport = mode === 'drone' ? Boolean(droneResult) : Boolean(result)
   const exportReport = () => {
-    const blob = new Blob([JSON.stringify({ generated: new Date().toISOString(), mode, assets,
-      camera: mode === 'image' ? measured?.camera ?? null : null, input: payload, result }, null, 2)],
-      { type: 'application/json' })
-    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `span-report-${form.voltage_kv}kV.json` })
+    const report = mode === 'drone'
+      ? { generated: new Date().toISOString(), mode, assets, camera: droneResult?.camera ?? null, result: droneResult }
+      : { generated: new Date().toISOString(), mode, assets,
+          camera: mode === 'image' ? measured?.camera ?? null : null, input: payload, result }
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' })
+    const name = mode === 'drone' ? 'drone-report' : `span-report-${form.voltage_kv}kV`
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `${name}.json` })
     a.click()
     URL.revokeObjectURL(a.href)
   }
@@ -114,8 +121,8 @@ export default function App() {
           <p>11 / 33 / 220 kV span check · ground, vegetation and B-R-Y phase ratios · CEA / MoEF references</p>
         </div>
         <div className="actions">
-          <button className="ghost" onClick={exportReport} disabled={!result}>Export JSON</button>
-          <button className="ghost" onClick={() => window.print()} disabled={!result}>Print</button>
+          <button className="ghost" onClick={exportReport} disabled={!canExport}>Export JSON</button>
+          <button className="ghost" onClick={() => window.print()} disabled={!canExport}>Print</button>
         </div>
       </header>
 
@@ -138,7 +145,7 @@ export default function App() {
           {mode === 'drone' ? (
             <>
               <div className="alert soft">Drone photo mode detects conductors, poles and vegetation. Sag and clearance need the side-view or text input.</div>
-              <DronePhoto assets={assets} onAssets={setAssets} />
+              <DronePhoto assets={assets} onAssets={setAssets} onResult={setDroneResult} />
             </>
           ) : (
             <>

@@ -1,9 +1,9 @@
 """Pydantic v2 contracts shared by the API and the React client (field names match JSON 1:1)."""
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 PhaseKey = Literal["A-Y", "A-R", "A-B", "B-Y", "B-R", "B-B"]
 
@@ -31,7 +31,7 @@ class TreeInput(BaseModel):
 class Measured(BaseModel):
     """Values extracted from an image (already converted to metres)."""
     sag: float = Field(gt=0)
-    phase_sags: dict[PhaseKey, float] = {}
+    phase_sags: dict[PhaseKey, Annotated[float, Field(gt=0)]] = {}
     photo_temp: float = Field(35, ge=-20, le=120)     # conductor temperature when the photo was taken (°C)
 
 
@@ -45,18 +45,24 @@ class CalcRequest(BaseModel):
     custom_conductor: Optional[Conductor] = None
     factor_of_safety: float = Field(2.0, gt=1, le=10)
     tension_kN: Optional[float] = Field(None, gt=0)
-    ref_temp: float = 32
-    max_temp: float = 75
+    ref_temp: float = Field(32, ge=-20, le=120)     # temperature at which tension = UTS / FoS
+    max_temp: float = Field(75, ge=-20, le=150)
     wind_pressure: float = Field(0, ge=0)          # Pa
     phase_gap: float = Field(4.0, gt=0)
     phase_offset: float = 0
-    phase_sag_dev: dict[PhaseKey, float] = {}      # % deviation per phase
+    phase_sag_dev: dict[PhaseKey, Annotated[float, Field(gt=-100, le=500)]] = {}   # % deviation per phase
     ratio_warn: float = Field(0.10, gt=0)          # |ratio - 1| tolerance
     ratio_crit: float = Field(0.25, gt=0)
     ground_clearance_override: Optional[float] = Field(None, gt=0)
     assess_at: Optional[Literal["reference", "max_temp"]] = None
     measured: Optional[Measured] = None
     tree: Optional[TreeInput] = None
+
+    @model_validator(mode="after")
+    def _limits(self) -> "CalcRequest":
+        if self.ratio_warn >= self.ratio_crit:
+            raise ValueError("ratio_warn must be smaller than ratio_crit")
+        return self
 
 
 # ---------- responses ----------
@@ -98,6 +104,7 @@ class GroundResult(Assessment):
 
 class TreeResult(Assessment):
     distance: float
+    phase: str                      # governing phase (closest to the tree)
     conductor_x: float
     conductor_z: float
     years_to_violation: Optional[float]
@@ -109,6 +116,7 @@ class Phase(BaseModel):
     arm: Literal["A", "B"]
     phase: Literal["R", "Y", "B"]
     attach: float
+    x: float                        # horizontal position from the line centre
     sag: float
     lowest: float
 
@@ -120,7 +128,7 @@ class PhaseRatio(BaseModel):
     midspan_gap: float
     ratio: float
     deviation_pct: float
-    sag_ratio: float
+    sag_ratio: Optional[float]
     status: Literal["OK", "Warning", "Critical"]
 
 
@@ -156,6 +164,8 @@ class CalcResult(BaseModel):
     phase_profiles: list[PhaseProfile]
     clearance_by_voltage: list[ClearanceRow]
     row_width: Optional[float]
+    max_temp: float
+    ratio_limits: dict[str, float]
     notes: list[str]
 
 
@@ -209,7 +219,13 @@ class DroneConductor(BaseModel):
     contact_pct: float
     contact_segments: list[tuple[float, float, float, float]]
     corridor_vegetation_pct: float
-    status: Literal["Contact", "Possible encroachment", "Clear"]
+    status: Literal["Contact", "Possible encroachment", "Clear", "Unverified"]
+
+
+class PhotoAssessment(BaseModel):
+    confidence: Literal["ok", "low"]
+    coverage_pct: float             # share of the photo's wire-like lines explained by the detected conductors
+    reasons: list[str]
 
 
 class PhotoResult(BaseModel):
@@ -219,4 +235,5 @@ class PhotoResult(BaseModel):
     poles: list[tuple[int, int, int, int]]
     attachment_points: list[tuple[float, float]]
     vegetation_pct: float
+    assessment: PhotoAssessment
     camera: Camera

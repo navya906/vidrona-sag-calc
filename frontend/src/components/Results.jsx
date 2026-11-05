@@ -13,21 +13,26 @@ const statusLabel = (passed, status) => {
   if (status === 'Warning') return 'Warning'
   return 'Pass'
 }
-const statusTone = (status) => ({ Pass: 'good', Warning: 'warn', Fail: 'bad' })[status]
+const statusTone = (status) => ({ Pass: 'good', Warning: 'warn', Fail: 'bad' })[status] ?? ''
+const sevText = (a) => (a?.severity ? `Severity ${a.severity}/5 · ${a.label}` : null)
 
-function Kpi({ label, value, unit, requirement, status }) {
+function Kpi({ label, value, unit, requirement, sub, status }) {
   return (
     <div className={`kpi ${statusTone(status)}`}>
       <span className="kpi-label">{label}</span>
       <span className="kpi-value">{value}<small>{unit}</small></span>
-      <span className="kpi-sub">Needs {requirement}</span>
-      <span className={`status-word ${statusTone(status)}`}>{status}</span>
+      {requirement && <span className="kpi-sub">Needs {requirement}</span>}
+      {sub && <span className="kpi-sub">{sub}</span>}
+      {status && <span className={`status-word ${statusTone(status)}`}>{status}</span>}
     </div>
   )
 }
 
 function Results({ result, voltage, tree: treeIn, span, sources, showArmB = true, spanLabel = '', photoTemp = null }) {
   const { mechanics: m, ground: g, tree: t, ratios } = result
+  const maxTemp = result.max_temp
+  const tolerance = `1.00 ± ${Math.round(result.ratio_limits.warn * 100)}%`
+  const worstSeverity = [g, t].filter((a) => a?.severity).sort((a, b) => b.severity - a.severity)[0]
   const displayedRatios = ratios.filter((r) => showArmB || r.arm === 'A')
   const worst = displayedRatios.reduce((a, b) => (b.deviation_pct > a.deviation_pct ? b : a))
   const groundStatus = statusLabel(g.passed)
@@ -48,17 +53,19 @@ function Results({ result, voltage, tree: treeIn, span, sources, showArmB = true
     <div className="results-inner">
       <div className={`summary-banner ${statusTone(overallStatus)}`} role="status">
         <strong>{overallStatus === 'Pass' ? 'Safe' : overallStatus === 'Fail' ? 'Action needed' : 'Review needed'}</strong>
-        <span>{spanLabel && <b>{spanLabel} · </b>}{summaryText}.</span>
+        <span>{spanLabel && <b>{spanLabel} · </b>}{worstSeverity && <b>Severity {worstSeverity.severity}/5 · </b>}{summaryText}.</span>
       </div>
 
       <div className="kpis">
-        <Kpi label={photoTemp != null ? `Sag · measured at ${photoTemp} °C → at 75 °C` : 'Sag at max temperature'}
-          value={fmt(photoTemp != null ? m.sag_max_temp : m.sag_assessed)} unit="m"
-          requirement={photoTemp != null ? `${fmt(m.sag_ref)} m in photo` : `T ${fmt(m.tension_ref_kN, 1)} kN`} status="Pass" />
-        <Kpi label="Ground clearance" value={fmt(g.actual)} unit="m" requirement={`${fmt(g.required.value)} m`} status={groundStatus} />
-        {t && <Kpi label="Tree clearance" value={fmt(t.distance)} unit="m" requirement={`${fmt(t.required.value)} m`} status={treeStatus} />}
-        <Kpi label={<>Phase ratio <Info text="The mid-span phase spacing divided by the spacing at the tower; 1.00 means spacing is unchanged." /></>}
-          value={fmt(worst.ratio)} requirement="1.00 ± 10%" status={phaseStatus} />
+        <Kpi label={m.assess_at === 'reference'
+            ? (photoTemp != null ? `Sag · as measured at ${photoTemp} °C` : 'Sag at reference temperature')
+            : (photoTemp != null ? `Sag · measured at ${photoTemp} °C → at ${maxTemp} °C` : `Sag at ${maxTemp} °C`)}
+          value={fmt(m.sag_assessed)} unit="m"
+          sub={photoTemp != null ? `${fmt(m.sag_ref)} m in photo · clearances checked at this sag` : `T ${fmt(m.tension_ref_kN, 1)} kN at reference`} />
+        <Kpi label="Ground clearance" value={fmt(g.actual)} unit="m" requirement={`${fmt(g.required.value)} m`} sub={sevText(g)} status={groundStatus} />
+        {t && <Kpi label={`Tree clearance · phase ${t.phase}`} value={fmt(t.distance)} unit="m" requirement={`${fmt(t.required.value)} m`} sub={sevText(t)} status={treeStatus} />}
+        <Kpi label={<>Phase ratio <Info text="The mid-span phase spacing divided by the spacing at the tower; 1.00 means spacing is unchanged. Below 0 means the phases have crossed." /></>}
+          value={fmt(worst.ratio)} requirement={tolerance} status={phaseStatus} />
       </div>
 
       <section className="card">
@@ -77,7 +84,7 @@ function Results({ result, voltage, tree: treeIn, span, sources, showArmB = true
                 return (
                   <div key={r.pair} className={`ratio ${statusTone(status)}`}>
                     <span>ARM {arm} - {r.pair}</span><b>{fmt(r.ratio)}</b>
-                    <small>{fmt(r.tower_gap)} m at tower → {fmt(r.midspan_gap)} m mid-span · target 1.00 ± 10% · {status}</small>
+                    <small>{fmt(r.tower_gap)} m at tower → {fmt(r.midspan_gap)} m mid-span · target {tolerance} · {status}</small>
                   </div>
                 )
               })}
@@ -91,7 +98,7 @@ function Results({ result, voltage, tree: treeIn, span, sources, showArmB = true
           <h2>Sag vs conductor temperature <Info text="Sag is how far the conductor dips below a straight line between its supports." /></h2>
           <LineChart xLabel="Conductor temperature (°C)" yLabel="Sag (m)" yMin={0}
             series={[{ name: 'Sag', className: 's1', points: result.temperature_sweep.map((p) => ({ x: p.temp, y: p.sag })) }]}
-            markers={[{ x: 75, label: 'typical ACSR max' }]} />
+            markers={[{ x: maxTemp, label: 'max conductor temperature' }]} />
         </section>
         <section className="card">
           <h2>Required clearances <Info text="Clearance is the shortest distance between the conductor and the ground or nearby tree." /></h2>

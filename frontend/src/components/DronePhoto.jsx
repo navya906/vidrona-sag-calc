@@ -6,10 +6,10 @@ const SAMPLES = [
   { file: 'drone1.jpg', label: 'Drone photo 1 (double pole)' },
   { file: 'drone2.jpg', label: 'Drone photo 2 (roadside pole)' },
 ]
-const TONE = { Contact: 'bad', 'Possible encroachment': 'warn', Clear: 'good' }
+const TONE = { Contact: 'bad', 'Possible encroachment': 'warn', Clear: 'good', Unverified: 'unk' }
 
 /** Oblique drone photo -> conductors, poles, attachment points, vegetation, leaf contact. No sag calculation. */
-function DronePhoto({ assets, onAssets }) {
+function DronePhoto({ assets, onAssets, onResult }) {
   const [img, setImg] = useState(null)
   const [res, setRes] = useState(null)
   const [status, setStatus] = useState('')
@@ -29,6 +29,7 @@ function DronePhoto({ assets, onAssets }) {
   }
 
   useEffect(() => () => img && URL.revokeObjectURL(img.url), [img])
+  useEffect(() => { onResult?.(res) }, [res, onResult])     // lets the header export the drone result
 
   const stroke = res ? Math.max(3, res.width / 400) : 3
   const counts = res ? Object.fromEntries(Object.keys(TONE).map((k) => [k, res.conductors.filter((c) => c.status === k).length])) : null
@@ -71,11 +72,19 @@ function DronePhoto({ assets, onAssets }) {
 
       {res && (
         <>
+          {res.assessment.confidence === 'low' && (
+            <div className="alert soft" role="status">
+              <b>Low confidence - verify visually.</b> {res.assessment.reasons.join(' ')}
+              {res.conductors.length > 0 && ' Detected lines are shown dashed and marked Unverified.'}
+              {' '}This tab is built for oblique drone frames over foliage and for dark wires against sky.
+            </div>
+          )}
           <div className="mini-kpis">
             <div><b>{res.conductors.length}</b><span>conductors</span></div>
             <div><b>{res.poles.length}</b><span>poles</span></div>
             <div><b>{res.attachment_points.length}</b><span>attachments</span></div>
             <div><b>{res.vegetation_pct}%</b><span>vegetation</span></div>
+            <div><b>{res.assessment.coverage_pct}%</b><span>lines explained</span></div>
           </div>
           <p className="legend-row small">
             {Object.entries(TONE).map(([k, t]) => <span key={k}><i className={`swatch ${t}`} />{k}: {counts[k]}</span>)}

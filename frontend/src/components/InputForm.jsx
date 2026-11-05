@@ -81,16 +81,17 @@ function InputForm({ form, meta, onChange, onVoltage, geometryFromImage, imageGe
         <summary>Advanced</summary>
         <fieldset>
           <legend>Line geometry</legend>
-          <NumberField label="Outer phase offset" unit="m" value={form.phase_offset} onChange={(phase_offset) => onChange({ phase_offset })} hint="from centre line" />
+          <NumberField label="Phase offset from centre line" unit="m" value={form.phase_offset} onChange={(phase_offset) => onChange({ phase_offset })} hint="arm A on the tree side (+), arm B mirrored (−)" />
         </fieldset>
         <fieldset>
           <legend>Operating conditions</legend>
           <div className="grid2">
             <NumberField label={<>Factor of safety <span className="info-tip" title="A safety factor reduces the conductor's rated strength to set a conservative working tension." aria-label="A safety factor reduces the conductor's rated strength to set a conservative working tension.">ⓘ</span></>} unit="x" value={form.factor_of_safety} onChange={(factor_of_safety) => onChange({ factor_of_safety })}
               disabled={geometryFromImage} hint={geometryFromImage ? 'tension implied by image' : 'T = UTS ÷ FoS'} />
-            <NumberField label="Stringing temperature" unit="°C" value={form.ref_temp} onChange={(ref_temp) => onChange({ ref_temp })} />
+            <NumberField label="Reference temperature" unit="°C" value={form.ref_temp} onChange={(ref_temp) => onChange({ ref_temp })}
+              disabled={geometryFromImage} hint={geometryFromImage ? 'photo temperature used instead' : 'tension = UTS ÷ FoS at this temperature'} />
             <NumberField label="Maximum conductor temperature" unit="°C" value={form.max_temp} onChange={(max_temp) => onChange({ max_temp })} />
-            <NumberField label="Wind pressure" unit="Pa" value={form.wind_pressure} min={0} onChange={(wind_pressure) => onChange({ wind_pressure })} hint="0 = still air" />
+            <NumberField label="Wind pressure" unit="Pa" value={form.wind_pressure} min={0} onChange={(wind_pressure) => onChange({ wind_pressure })} hint="tree check only · 0 = still air" />
           </div>
         </fieldset>
         <fieldset>

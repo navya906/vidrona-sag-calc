@@ -130,8 +130,16 @@ def calculate(r: CalcRequest) -> dict:
     if r.measured:
         S_ref = r.measured.sag
         T_ref = w * L * L / (8 * S_ref)
+        pct = 100 * T_ref / uts
+        if T_ref >= uts:
+            raise ValueError(f"Measured sag {S_ref:.2f} m on a {L:g} m span implies a tension of {T_ref / 1000:.1f} kN "
+                             f"({pct:.0f}% of the conductor's breaking strength), which is not physically possible. "
+                             f"Check the image calibration (known span / attach height) and the conductor.")
         notes.append(f"Sag {S_ref:.2f} m measured from image at {ref_temp:g} °C → implied tension "
-                     f"{T_ref / 1000:.1f} kN ({100 * T_ref / uts:.1f}% of UTS).")
+                     f"{T_ref / 1000:.1f} kN ({pct:.1f}% of UTS).")
+        if T_ref > uts / 2:
+            notes.append(f"Warning: implied tension is above 50% of UTS (factor of safety {uts / T_ref:.2f}, below 2). "
+                         f"Check the image calibration before relying on this result.")
     else:
         T_ref = r.tension_kN * 1000 if r.tension_kN else uts / r.factor_of_safety
         S_ref = sag_parabolic(w, L, T_ref)
@@ -140,40 +148,58 @@ def calculate(r: CalcRequest) -> dict:
         T = state_change_tension(T_ref, t - ref_temp, w, L, EA, cond.alpha)
         return T, sag_parabolic(w, L, T)
 
+    sweep_top = max(90, 5 * math.ceil(r.max_temp / 5))      # always covers the chosen maximum temperature
     sweep = [{"temp": t, "tension_kN": round(T / 1000, 2), "sag": round(S, 3)}
-             for t in range(0, 91, 5) for T, S in (sag_at(t),)]
+             for t in range(0, sweep_top + 1, 5) for T, S in (sag_at(t),)]
     T_max, S_max = sag_at(r.max_temp)
 
     theta = math.atan2(r.wind_pressure * cond.diameter_mm / 1000, w)   # blow-out angle
-    assess_at = r.assess_at or ("reference" if r.measured else "max_temp")
+    # Clearances are judged at the maximum conductor temperature (worst case) unless asked otherwise -
+    # also in image mode, where the photo-time sag is projected to max_temp first.
+    assess_at = r.assess_at or "max_temp"
     S_base = S_ref if assess_at == "reference" else S_max
-    S_v, swing = S_base * math.cos(theta), S_base * math.sin(theta)
+    k_meas = S_base / S_ref                      # projects measured (photo-time) phase sags to the assessed state
+    swing = S_base * math.sin(theta)
+    if r.measured and assess_at == "max_temp":
+        notes.append(f"Measured sag projected from {ref_temp:g} °C to {r.max_temp:g} °C for the clearance checks "
+                     f"({S_ref:.2f} m → {S_max:.2f} m).")
     if theta:
-        notes.append(f"Wind {r.wind_pressure:.0f} Pa swings the conductor {math.degrees(theta):.1f}° from vertical.")
+        notes.append(f"Wind {r.wind_pressure:.0f} Pa swings the conductor {math.degrees(theta):.1f}° from vertical. "
+                     f"Used for the tree check only; ground clearance is checked in still air (worst case for ground).")
 
     measured_sags = r.measured.phase_sags if r.measured else {}
     phases = []
     for arm in ARMS:
         for name, k in PHASE_LEVELS:
             pid = f"{arm}-{name}"
-            s = measured_sags.get(pid, S_v * (1 + r.phase_sag_dev.get(pid, 0) / 100))
+            # one side view shows one circuit: arm B mirrors the measured arm A sags
+            meas = measured_sags.get(pid, measured_sags.get(f"A-{name}"))
+            s = meas * k_meas if meas is not None else S_base * (1 + r.phase_sag_dev.get(pid, 0) / 100)
             h = H + k * r.phase_gap
-            phases.append({"id": pid, "arm": arm, "phase": name, "attach": h, "sag": round(s, 3), "lowest": round(h - s, 3)})
+            x = r.phase_offset if arm == "A" else -r.phase_offset     # arm A one side of the centre line, arm B the other
+            phases.append({"id": pid, "arm": arm, "phase": name, "attach": h, "x": x,
+                           "sag": round(s, 3), "lowest": round(h - s, 3)})
     by_id = {p["id"]: p for p in phases}
 
     ratios = []
     for arm in ARMS:
         for a, b in PAIRS:
             pa, pb = by_id[f"{arm}-{a}"], by_id[f"{arm}-{b}"]
-            tower_gap = abs(pa["attach"] - pb["attach"])
-            mid_gap = abs(pa["lowest"] - pb["lowest"])
+            # signed: a is always the upper phase, so a gap <= 0 at mid-span means the phases have crossed
+            tower_gap = pa["attach"] - pb["attach"]
+            mid_gap = pa["lowest"] - pb["lowest"]
             ratio = mid_gap / tower_gap
             deviation = abs(ratio - 1)
-            status = "Critical" if deviation >= r.ratio_crit else "Warning" if deviation >= r.ratio_warn else "OK"
+            crossed = mid_gap <= 0
+            status = ("Critical" if crossed or deviation >= r.ratio_crit
+                      else "Warning" if deviation >= r.ratio_warn else "OK")
+            if crossed:
+                notes.append(f"Arm {arm}: phase {a} hangs at or below phase {b} at mid-span (phases crossed).")
             ratios.append({"arm": arm, "pair": a + b, "tower_gap": round(tower_gap, 3),
                            "midspan_gap": round(mid_gap, 3), "ratio": round(ratio, 3),
                            "deviation_pct": round(100 * deviation, 1),
-                           "sag_ratio": round(pa["sag"] / pb["sag"], 3), "status": status})
+                           "sag_ratio": round(pa["sag"] / pb["sag"], 3) if pb["sag"] > 0 else None,
+                           "status": status})
 
     lowest = min(p["lowest"] for p in phases)
 
@@ -184,7 +210,7 @@ def calculate(r: CalcRequest) -> dict:
     ground = {"required": g_req, "actual": lowest, "margin": round(lowest - g_req.value, 3),
               "ratio": round(g_ratio, 3), "passed": lowest >= g_req.value, "severity": sev, "label": label}
 
-    tree = _tree(r, kv, L, H, S_v, swing) if r.tree else None
+    tree = _tree(r, kv, L, phases, theta) if r.tree else None
     cat = sag_catenary(w, L, T_max)
 
     return {
@@ -195,7 +221,7 @@ def calculate(r: CalcRequest) -> dict:
             "sag_max_temp_catenary": round(cat, 3),
             "catenary_diff_pct": round(100 * (cat - S_max) / S_max, 2),
             "blowout_deg": round(math.degrees(theta), 2), "swing_mid": round(swing, 3),
-            "sag_assessed": round(S_v, 3), "assess_at": assess_at, "lowest_point": lowest,
+            "sag_assessed": round(S_base, 3), "assess_at": assess_at, "lowest_point": lowest,
         },
         "ground": ground, "tree": tree, "phases": phases, "ratios": ratios,
         "temperature_sweep": sweep,
@@ -203,23 +229,38 @@ def calculate(r: CalcRequest) -> dict:
         "clearance_by_voltage": [{"kv": v, "ground": ground_clearance(v, r.location, r.insulated).value,
                                   "tree": TREE_CLEARANCE[v]} for v in VOLTAGES],
         "row_width": _table_up(ROW_WIDTH, kv)[0],
+        "max_temp": r.max_temp,
+        "ratio_limits": {"warn": r.ratio_warn, "crit": r.ratio_crit},
         "notes": notes,
     }
 
 
-def _tree(r: CalcRequest, kv: float, L: float, H: float, S_v: float, swing: float) -> dict:
+def _tree(r: CalcRequest, kv: float, L: float, phases: list[dict], theta: float) -> dict:
     t = r.tree
     req = (Requirement(value=t.clearance_override, rule="User override", source="User")
            if t.clearance_override else tree_clearance(kv))
     x = min(t.x, L)
     frac = 4 * x * (L - x) / (L * L)
-    cz, cx = H - S_v * frac, r.phase_offset + swing * frac   # lowest phase at the tree, swung towards it
+    # Every phase on both arms, each with its own sag: once in still air and, with wind,
+    # once blown TOWARDS the tree (worst direction), in the swung plane.
+    positions: list[tuple[str, float, float]] = []
+    for p in phases:
+        drop = p["sag"] * frac
+        positions.append((p["id"], p["x"], p["attach"] - drop))
+        if theta:
+            toward = 1.0 if t.offset >= p["x"] else -1.0
+            positions.append((p["id"], p["x"] + toward * drop * math.sin(theta), p["attach"] - drop * math.cos(theta)))
 
-    def gap(years: float) -> float:
+    def dist(cx: float, cz: float, years: float) -> float:
         h, rad = t.height + t.growth_rate * years, t.canopy_radius + t.growth_rate * years / 2
         dx = max(0.0, t.offset - rad - cx, cx - (t.offset + rad))
         return math.hypot(dx, max(0.0, cz - h))
 
+    def gap(years: float) -> float:
+        return min(dist(cx, cz, years) for _, cx, cz in positions)
+
+    phase_id, cx, cz = min(positions, key=lambda q: dist(q[1], q[2], 0))
+    lowest_z = min(cz_ for _, _, cz_ in positions)
     d = gap(0)
     years = None
     if req.value is not None and t.growth_rate > 0 and d >= req.value and gap(50) < req.value:
@@ -229,11 +270,12 @@ def _tree(r: CalcRequest, kv: float, L: float, H: float, S_v: float, swing: floa
             lo, hi = (mid, hi) if gap(mid) >= req.value else (lo, mid)
         years = round(lo, 1)
     sev, label = severity(d / req.value if req.value else None)
-    return {"required": req, "distance": round(d, 3), "conductor_x": round(cx, 3), "conductor_z": round(cz, 3),
+    return {"required": req, "distance": round(d, 3), "phase": phase_id,
+            "conductor_x": round(cx, 3), "conductor_z": round(cz, 3),
             "margin": round(d - req.value, 3) if req.value is not None else None,
             "passed": d >= req.value if req.value is not None else None,
             "years_to_violation": years,
-            "max_safe_height_below": round(cz - req.value, 3) if req.value is not None else None,
+            "max_safe_height_below": round(lowest_z - req.value, 3) if req.value is not None else None,
             "severity": sev, "label": label}
 
 

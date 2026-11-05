@@ -37,7 +37,10 @@ def meta() -> Meta:
 def calculate(req: CalcRequest) -> dict:
     if req.conductor not in engine.CONDUCTORS and req.custom_conductor is None:
         raise HTTPException(404, f"Conductor '{req.conductor}' not found")
-    return engine.calculate(req)
+    try:
+        return engine.calculate(req)
+    except ValueError as e:                     # physically impossible input, e.g. sag implying tension > UTS
+        raise HTTPException(422, str(e)) from e
 
 
 def _read_upload(file: UploadFile) -> bytes:

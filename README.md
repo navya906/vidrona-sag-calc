@@ -47,7 +47,8 @@ Camera metadata (GPS, altitude, gimbal pitch, focal length, DJI XMP fields) is r
 1. **Ridge filter** finds thin bright lines; **excess-green** and low saturation reject foliage.
 2. **Hough segments** are clustered into collinear groups and each group is fitted with a slightly curved line; a **brightness contrast test** keeps silver conductors and rejects dark steel crossarms.
 3. **Poles** are tall, narrow, non-vegetation regions near a conductor end (attachment point).
-4. **Leaf contact** = foliage drawn over the wire path (hard evidence). Dense foliage around the wire is only *possible* encroachment, because one photo cannot tell beside from behind.
+4. **Confidence check.** Long, smooth line structure in the photo is measured independently of the fit. If the detected conductors explain less than 35% of it, or nothing is detected, the result is **low confidence**: a warning is shown and every conductor is marked **Unverified** instead of Clear. Supported views: oblique drone frames over foliage, and dark wires against sky. Lattice towers and grey-olive forest backgrounds are not reliably handled yet.
+5. **Leaf contact** = foliage drawn over the wire path (hard evidence). Gaps in a detected wire are bridged only when foliage covers them, so a wire hidden by leaves is still checked, while a wire that ends at an insulator is not joined to the next span. Dense foliage around the wire is only *possible* encroachment, because one photo cannot tell beside from behind.
 
 ## What is calculated
 
@@ -55,12 +56,13 @@ Camera metadata (GPS, altitude, gimbal pitch, focal length, DJI XMP fields) is r
 |---|---|
 | Sag | Parabolic `S = wL²/8T` (as in the brief), with catenary shown for comparison |
 | Sag at max temperature | Parabolic state-change equation (temperature sweep 0–90 °C) |
-| Wind blow-out | Swing angle `tan θ = (wind pressure × diameter) / weight` |
+| Wind blow-out | Swing angle `tan θ = (wind pressure × diameter) / weight`. Used for the tree check only (conductor blown towards the tree); ground clearance is always checked in still air |
+| Clearance state | All clearances are judged at the maximum conductor temperature. In image mode the photo-time sag is projected there first. A measured sag implying tension ≥ UTS is rejected; above 50% of UTS it is flagged |
 | Ground clearance required | CEA Reg. 58: across street 6.1 m, along street 5.8 m (up to 33 kV); open ground 4.6 m bare / 4.0 m insulated (11 kV), 5.2 m (33 kV); 220 kV = 5.2 + 0.3 × 6 = 7.0 m |
 | Tree clearance required | MoEF / CEA table: 11 kV 2.6 m · 33 kV 2.8 m · 220 kV 4.6 m |
-| Tree check | 3-D distance from the (swung) conductor to the canopy, plus years until breach at the given growth rate |
-| Phase ratio | Mid-span distance ÷ tower distance for each pair (B-R, **R-Y**, B-Y) on both arms. 1.00 = healthy; below 1 = phases closing in; above 1 = spreading. R-Y is the headline value |
-| Severity 1–5 | Clearance ratio bands, matching the Vidrona fault card format |
+| Tree check | Closest distance from any phase on either arm (own sag, still air and blown) to the canopy, plus years until breach at the given growth rate |
+| Phase ratio | Mid-span distance ÷ tower distance for each pair (B-R, **R-Y**, B-Y) on both arms. 1.00 = healthy; below 1 = phases closing in; above 1 = spreading. R-Y is the headline value. A value ≤ 0 means the upper phase has dropped to or below the lower one (phases crossed) and is always Critical |
+| Severity 1–5 | Clearance ratio bands, matching the Vidrona fault card format; shown on the ground and tree cards and in the summary |
 
 Use **Simulate phase sag fault** to add extra sag to any phase and watch the ratios and severity react.
 

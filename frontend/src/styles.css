@@ -190,6 +190,10 @@ table.compare tr.current td { font-weight: 650; color: var(--accent); }
 .drone-wire.bad polyline, .drone-wire.bad text { stroke: var(--bad); fill: var(--bad); }
 .drone-wire.good text { fill: var(--good); }
 .drone-wire .contact { stroke: #e63946; }
+.drone-wire.unk polyline { stroke: var(--muted); stroke-dasharray: 10 8; }
+.drone-wire.unk text { fill: var(--muted); }
+.swatch.unk { background: var(--muted); }
+tr.unk td { color: var(--muted); }
 .attach { fill: none; stroke: #fff; }
 .mini-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0; }
 .mini-kpis div { background: var(--bg); border-radius: 8px; padding: 8px; text-align: center; display: flex; flex-direction: column; }
